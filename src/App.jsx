@@ -16,7 +16,8 @@ export default function App() {
 
     // CONNECT SOCKET + REGISTER LISTENERS
     useEffect(() => {
-        socket.current = io("http://localhost:3000", {
+        // socket.current = io("http://localhost:3000", {
+        socket.current = io(import.meta.env.VITE_BACKEND_URL,  {
             transports: ["websocket"],
         });
 
