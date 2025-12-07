@@ -4,20 +4,19 @@ import { io } from "socket.io-client";
 export default function App() {
     const timer = useRef(null);
     const socket = useRef(null);
-    const bottomRef = useRef(null); // for auto-scroll
+    const bottomRef = useRef(null);
 
     const [userName, setUserName] = useState("");
-    const [showNamePopup, setShowNamePopup] = useState(true);
     const [inputName, setInputName] = useState("");
-    const [typers, setTypers] = useState([]);
+    const [showPopup, setShowPopup] = useState(true);
 
     const [messages, setMessages] = useState([]);
+    const [typers, setTypers] = useState([]);
+
     const [text, setText] = useState("");
 
-    // CONNECT SOCKET + REGISTER LISTENERS
     useEffect(() => {
-        // socket.current = io("http://localhost:3000", {
-        socket.current = io(import.meta.env.VITE_BACKEND_URL,  {
+        socket.current = io(import.meta.env.VITE_BACKEND_URL || "http://localhost:3000", {
             transports: ["websocket"],
         });
 
@@ -25,16 +24,13 @@ export default function App() {
             console.log("Connected:", socket.current.id);
 
             socket.current.on("roomNotice", (name) => {
-                console.log(`${name} joined the group!`);
-                // optional: show system message
                 setMessages((prev) => [
                     ...prev,
                     {
                         id: Date.now() + Math.random(),
-                        sender: "System",
                         text: `${name} joined the chat`,
+                        sender: "system",
                         ts: Date.now(),
-                        system: true,
                     },
                 ]);
             });
@@ -44,34 +40,25 @@ export default function App() {
             });
 
             socket.current.on("typing", (name) => {
-                setTypers((prev) => {
-                    if (!prev.includes(name)) {
-                        return [...prev, name];
-                    }
-                    return prev;
-                });
+                setTypers((prev) => (!prev.includes(name) ? [...prev, name] : prev));
             });
 
             socket.current.on("stopTyping", (name) => {
-                setTypers((prev) => prev.filter((typer) => typer !== name));
+                setTypers((prev) => prev.filter((t) => t !== name));
             });
         });
 
-        // CLEANUP
-        return () => {
-            if (socket.current) {
-                socket.current.off("roomNotice");
-                socket.current.off("chatMessage");
-                socket.current.off("typing");
-                socket.current.off("stopTyping");
-                socket.current.disconnect();
-            }
-        };
+        return () => socket.current.disconnect();
     }, []);
 
-    // TYPING INDICATOR EFFECT
     useEffect(() => {
-        if (!userName || !socket.current) return;
+        if (bottomRef.current) {
+            bottomRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [messages]);
+
+    useEffect(() => {
+        if (!userName) return;
 
         if (text.trim() !== "") {
             socket.current.emit("typing", userName);
@@ -79,77 +66,40 @@ export default function App() {
 
             timer.current = setTimeout(() => {
                 socket.current.emit("stopTyping", userName);
-            }, 1000);
+            }, 900);
         } else {
-            // if text empty → immediately stopTyping
             socket.current.emit("stopTyping", userName);
         }
 
-        return () => {
-            clearTimeout(timer.current);
-        };
-    }, [text, userName]);
+        return () => clearTimeout(timer.current);
+    }, [text]);
 
-    // AUTO SCROLL TO BOTTOM WHEN MESSAGES CHANGE
-    useEffect(() => {
-        if (bottomRef.current) {
-            bottomRef.current.scrollIntoView({ behavior: "smooth" });
-        }
-    }, [messages]);
-
-    // FORMAT TIMESTAMP TO HH:MM
-    function formatTime(ts) {
-        const d = new Date(ts);
-        const hh = String(d.getHours()).padStart(2, "0");
-        const mm = String(d.getMinutes()).padStart(2, "0");
-        return `${hh}:${mm}`;
-    }
-
-    // HANDLE NAME SUBMIT
-    function handleNameSubmit(e) {
+    function joinChat(e) {
         e.preventDefault();
-        const trimmed = inputName.trim();
-        if (!trimmed) return;
+        if (!inputName.trim()) return;
 
-        socket.current.emit("joinRoom", trimmed);
+        setUserName(inputName.trim());
+        setShowPopup(false);
 
-        setUserName(trimmed);
-        setShowNamePopup(false);
-
-        // Optional: add welcome message
-        setMessages([
-            {
-                id: Date.now(),
-                sender: "System",
-                text: `Welcome, ${trimmed}! Start chatting now.`,
-                ts: Date.now(),
-                system: true,
-            },
-        ]);
+        socket.current.emit("joinRoom", inputName.trim());
     }
 
-    // SEND MESSAGE
     function sendMessage() {
-        const t = text.trim();
-        if (!t || !userName) return;
+        const msgText = text.trim();
+        if (!msgText) return;
 
         const msg = {
             id: Date.now(),
             sender: userName,
-            text: t,
+            text: msgText,
             ts: Date.now(),
         };
 
-        // Add to own UI
-        setMessages((m) => [...m, msg]);
-
-        // Send to others
+        setMessages((prev) => [...prev, msg]);
         socket.current.emit("chatMessage", msg);
-
         setText("");
     }
 
-    // ENTER KEY HANDLER
     function handleKeyDown(e) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -157,31 +107,34 @@ export default function App() {
         }
     }
 
+    const time = (ts) => {
+        const d = new Date(ts);
+        return `${String(d.getHours()).padStart(2, "0")}:${String(
+            d.getMinutes()
+        ).padStart(2, "0")}`;
+    };
+
     return (
-        <div className="min-h-screen flex items-center justify-center bg-zinc-100 p-4 font-inter">
-            {/* POPUP: ENTER YOUR NAME */}
-            {showNamePopup && (
-                <div className="fixed inset-0 flex items-center justify-center z-40 bg-black/20">
-                    <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
-                        <h1 className="text-xl font-semibold text-black">
-                            Enter your name
-                        </h1>
-                        <p className="text-sm text-gray-500 mt-1">
-                            Enter your name to start chatting. This will be used to identify you in the group.
-                        </p>
-                        <form onSubmit={handleNameSubmit} className="mt-4">
+        <div className="min-h-screen bg-gradient-to-br from-[#2E7D32] to-[#004D40] flex items-center justify-center p-4 font-inter">
+
+            {/* NAME POPUP */}
+            {showPopup && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-xl p-7 w-full max-w-sm animate-fadeIn">
+                        <h2 className="text-xl font-semibold">Enter your name</h2>
+                        <p className="text-gray-500 text-sm mt-1">Start chatting instantly</p>
+                        <form onSubmit={joinChat} className="mt-5">
                             <input
-                                autoFocus
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                placeholder="Your name"
                                 value={inputName}
                                 onChange={(e) => setInputName(e.target.value)}
-                                className="w-full border border-gray-200 rounded-md px-3 py-2 outline-green-500 placeholder-gray-400"
-                                placeholder="Your name (e.g. Aman)"
                             />
                             <button
                                 type="submit"
-                                className="block ml-auto mt-3 px-4 py-1.5 rounded-full bg-green-500 text-white font-medium cursor-pointer"
+                                className="w-full mt-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
                             >
-                                Continue
+                                Join Chat
                             </button>
                         </form>
                     </div>
@@ -189,89 +142,77 @@ export default function App() {
             )}
 
             {/* CHAT WINDOW */}
-            {!showNamePopup && (
-                <div className="w-full max-w-2xl h-[90vh] bg-white rounded-xl shadow-md flex flex-col overflow-hidden">
+            {!showPopup && (
+                <div className="w-full max-w-2xl h-[90vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden animate-slideUp">
+
                     {/* HEADER */}
-                    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
-                        <div className="h-10 w-10 rounded-full bg-[#075E54] flex items-center justify-center text-white font-semibold">
-                            R
+                    <div className="bg-green-600 text-white px-5 py-4 flex items-center gap-3 shadow-md">
+                        <div className="h-10 w-10 bg-white/20 rounded-full flex items-center justify-center font-semibold">
+                            {userName[0].toUpperCase()}
                         </div>
                         <div className="flex-1">
-                            <div className="text-sm font-medium text-[#303030]">
-                                Realtime group chat
+                            <div className="font-semibold text-lg">Realtime Group Chat</div>
+                            <div className="text-sm text-green-100">
+                                {typers.length > 0 ? `${typers.join(", ")} typing...` : "Online"}
                             </div>
-
-                            {typers.length ? (
-                                <div className="text-xs text-gray-500">
-                                    {typers.join(", ")}{" "}
-                                    {typers.length > 1 ? "are typing..." : "is typing..."}
-                                </div>
-                            ) : null}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                            Signed in as{" "}
-                            <span className="font-medium text-[#303030] capitalize">
-                                {userName}
-                            </span>
                         </div>
                     </div>
 
                     {/* MESSAGES */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-zinc-100 flex flex-col">
-                        {messages.map((m) => {
-                            const mine = m.sender === userName;
-                            const isSystem = m.system;
+                    <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-100">
+
+                        {messages.map((msg) => {
+                            const mine = msg.sender === userName;
+
+                            if (msg.sender === "system") {
+                                return (
+                                    <div
+                                        key={msg.id}
+                                        className="text-center text-xs text-gray-500 my-3"
+                                    >
+                                        {msg.text}
+                                    </div>
+                                );
+                            }
 
                             return (
                                 <div
-                                    key={m.id}
-                                    className={`flex ${
-                                        mine ? "justify-end" : isSystem ? "justify-center" : "justify-start"
-                                    }`}
+                                    key={msg.id}
+                                    className={`flex ${mine ? "justify-end" : "justify-start"} animate-fadeIn`}
                                 >
                                     <div
-                                        className={`max-w-[78%] p-3 my-1 rounded-[18px] text-sm leading-5 shadow-sm ${
-                                            isSystem
-                                                ? "bg-gray-200 text-gray-700 text-center"
-                                                : mine
-                                                ? "bg-[#DCF8C6] text-[#303030] rounded-br-2xl"
-                                                : "bg-white text-[#303030] rounded-bl-2xl"
+                                        className={`max-w-[75%] px-4 py-3 rounded-xl shadow-sm ${
+                                            mine
+                                                ? "bg-green-500 text-white rounded-br-none"
+                                                : "bg-white text-gray-800 rounded-bl-none"
                                         }`}
                                     >
-                                        <div className="break-words whitespace-pre-wrap">
-                                            {m.text}
+                                        <div className="whitespace-pre-wrap break-words">{msg.text}</div>
+                                        <div className="text-[10px] text-gray-200 mt-1 text-right">
+                                            {time(msg.ts)}
                                         </div>
-                                        {!isSystem && (
-                                            <div className="flex justify-between items-center mt-1 gap-16">
-                                                <div className="text-[11px] font-bold">
-                                                    {m.sender}
-                                                </div>
-                                                <div className="text-[11px] text-gray-500 text-right">
-                                                    {formatTime(m.ts)}
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             );
                         })}
-                        <div ref={bottomRef} />
+
+                        <div ref={bottomRef}></div>
                     </div>
 
                     {/* INPUT AREA */}
-                    <div className="px-4 py-3 border-t border-gray-200 bg-white">
-                        <div className="flex items-center justify-between gap-4 border border-gray-200 rounded-full">
+                    <div className="p-4 bg-white shadow-inner">
+                        <div className="flex items-center bg-gray-100 rounded-full px-4 py-2">
                             <textarea
                                 rows={1}
                                 value={text}
                                 onChange={(e) => setText(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Type a message..."
-                                className="w-full resize-none px-4 py-4 text-sm outline-none rounded-full"
+                                className="flex-1 bg-transparent outline-none resize-none py-2"
                             />
                             <button
                                 onClick={sendMessage}
-                                className="bg-green-500 text-white px-4 py-2 mr-2 rounded-full text-sm font-medium cursor-pointer"
+                                className="ml-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full transition"
                             >
                                 Send
                             </button>
