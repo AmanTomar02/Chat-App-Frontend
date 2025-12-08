@@ -45,6 +45,11 @@ export default function App() {
                 ]);
             });
 
+            socket.current.on("onlineUsers", (users) => {
+                console.log("Received online users:", users);
+                setOnlineUsers(users);
+            });
+
             socket.current.on("chatMessage", (msg) => {
                 setMessages((prev) => [...prev, msg]);
             });
@@ -58,29 +63,12 @@ export default function App() {
             socket.current.on("stopTyping", (name) => {
                 setTypers((prev) => prev.filter((t) => t !== name));
             });
-
-            socket.current.on("onlineUsers", (users) => {
-                setOnlineUsers(users);
-            });
-
-            socket.current.on("messageRead", ({ messageIds }) => {
-                // mark my sent messages as read
-                setMessages((prev) =>
-                    prev.map((m) =>
-                        messageIds.includes(m.id) && m.sender === userName
-                            ? { ...m, status: "read" }
-                            : m
-                    )
-                );
-            });
         });
 
         return () => {
-            if (socket.current) {
-                socket.current.disconnect();
-            }
+            socket.current.disconnect();
         };
-    }, [userName]); // userName change pe bhi listeners ko correct context mile
+    }, []);   // FIXED ✔
 
     // ---------- AUTO SCROLL ----------
     useEffect(() => {
@@ -148,7 +136,12 @@ export default function App() {
         if (!trimmed) return;
         setUserName(trimmed);
         setShowNamePopup(false);
-        socket.current.emit("joinRoom", trimmed);
+
+        // socket.current.emit("joinRoom", trimmed);
+        setTimeout(() => {
+            socket.current.emit("joinRoom", trimmed);
+        }, 150);
+
 
         setMessages([
             {
@@ -223,9 +216,8 @@ export default function App() {
 
             {/* SLIDE IN ONLINE USERS SIDEBAR */}
             <div
-                className={`fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 ${
-                    showUsersPanel ? "translate-x-0" : "-translate-x-full"
-                } ${chatBg} shadow-xl border-r border-black/10 lg:static lg:translate-x-0 lg:w-64 lg:mr-4 lg:rounded-2xl lg:h-[90vh] lg:flex lg:flex-col hidden lg:block`}
+                className={`fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 ${showUsersPanel ? "translate-x-0" : "-translate-x-full"
+                    } ${chatBg} shadow-xl border-r border-black/10 lg:static lg:translate-x-0 lg:w-64 lg:mr-4 lg:rounded-2xl lg:h-[90vh] lg:flex lg:flex-col hidden lg:block`}
             >
                 <div
                     className={`${headerBg} text-white px-4 py-3 flex items-center justify-between lg:rounded-t-2xl`}
@@ -331,16 +323,14 @@ export default function App() {
                         return (
                             <div
                                 key={m.id}
-                                className={`flex ${
-                                    mine ? "justify-end" : "justify-start"
-                                } animate-fadeIn`}
+                                className={`flex ${mine ? "justify-end" : "justify-start"
+                                    } animate-fadeIn`}
                             >
                                 <div
-                                    className={`max-w-[78%] px-3 py-2 rounded-xl shadow-sm ${
-                                        mine
+                                    className={`max-w-[78%] px-3 py-2 rounded-xl shadow-sm ${mine
                                             ? `${myBubble} rounded-br-none`
                                             : `${otherBubble} rounded-bl-none`
-                                    }`}
+                                        }`}
                                 >
                                     <div className="whitespace-pre-wrap break-words text-sm">
                                         {m.text}
